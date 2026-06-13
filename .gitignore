@@ -1,0 +1,6 @@
+dane/*.xlsx
+dane/*.xlsm
+dane/*.csv
+.DS_Store
+Thumbs.db
+*.tmp

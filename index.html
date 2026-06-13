@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Trening Analytics — Kamil</title>
+<meta name="description" content="Analiza raportów treningowych: siła, sylwetka, progresja.">
+<meta name="theme-color" content="#0b0e13">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Trening">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="app/styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">⚡</div>
+      <div>
+        <div class="t1">Trening Analytics</div>
+        <div class="t2">Kamil · siła &amp; sylwetka</div>
+      </div>
+    </div>
+
+    <div class="nav-item active" data-view="dashboard"><span class="ico">◎</span> Pulpit</div>
+    <div class="nav-item" data-view="strength"><span class="ico">🏋</span> Siła &amp; progresja</div>
+    <div class="nav-item" data-view="body"><span class="ico">📐</span> Sylwetka &amp; pomiary</div>
+    <div class="nav-item" data-view="reports"><span class="ico">📝</span> Raporty tygodniowe</div>
+    <div class="nav-sep"></div>
+    <div class="nav-item" data-view="entry"><span class="ico">✍</span> Wpis tygodnia</div>
+    <div class="nav-item" data-view="rpe"><span class="ico">📊</span> Skala RPE</div>
+
+    <div class="side-foot">
+      <div>Plik źródłowy:</div>
+      <div class="file-name" id="sideFileName">— nie wczytano —</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="viewTitle">Pulpit</h1>
+        <div class="sub" id="viewSub">Wczytaj raport, aby zobaczyć analizę.</div>
+      </div>
+      <div class="topbar-actions">
+        <button class="btn ghost" id="btnReload" title="Wczytaj nowy / odświeżony plik">
+          <span class="ico">↻</span> Wczytaj plik
+        </button>
+        <button class="btn ghost" id="btnExport" title="Pobierz kopię pliku w tej samej formie — do wysłania trenerowi">
+          <span class="ico">⬇</span> Eksportuj dla trenera
+        </button>
+        <button class="btn primary" id="btnOpen">
+          <span class="ico">📂</span> Otwórz raport
+        </button>
+        <input type="file" id="fileInput" accept=".xlsx" class="hidden">
+      </div>
+    </div>
+
+    <div id="viewRoot"></div>
+  </main>
+</div>
+
+<div class="toast-wrap" id="toastWrap"></div>
+
+<script src="lib/jszip.min.js"></script>
+<script src="lib/chart.umd.min.js"></script>
+<script src="lib/xlsx-engine.js"></script>
+<script src="lib/training-model.js"></script>
+<script src="app/app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+</script>
+</body>
+</html>
