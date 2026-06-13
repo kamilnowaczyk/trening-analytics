@@ -7,6 +7,7 @@
 const State = {
   wb: null,          // parsowany workbook (xlsx-engine)
   model: null,       // model treningowy (training-model)
+  wbBytes: null,     // surowe bajty aktualnego pliku (do chmury)
   fileHandle: null,  // uchwyt pliku (File System Access) – do zapisu w miejscu
   fileName: null,
   view: 'dashboard',
@@ -91,21 +92,28 @@ async function openViaPicker() {
 }
 
 async function loadFile(file, canSave) {
+  const buf = await file.arrayBuffer();
+  await loadBytes(new Uint8Array(buf), file.name, canSave, {});
+}
+
+// wspólna ścieżka wczytania (z pliku lokalnego lub z chmury)
+async function loadBytes(bytes, fileName, canSave, opts) {
+  opts = opts || {};
   try {
-    const buf = await file.arrayBuffer();
-    const wb = await XLSXEngine.load(buf);
+    const wb = await XLSXEngine.load(bytes);
     const model = TrainingModel.build(wb);
     State.wb = wb;
     State.model = model;
-    State.fileName = file.name;
+    State.wbBytes = bytes;
+    State.fileName = fileName;
     State.canSave = !!canSave;
-    $('#sideFileName').textContent = file.name;
-    // zapamiętaj snapshot modelu (do szybkiego podglądu bez pliku)
-    try { localStorage.setItem('ta_model', JSON.stringify(model)); localStorage.setItem('ta_fname', file.name); } catch (e) {}
-    toast('Wczytano: ' + file.name + ' · ' + model.training.weekCount + ' tygodni', '');
+    $('#sideFileName').textContent = fileName + (opts.fromCloud ? ' ☁' : '');
+    try { localStorage.setItem('ta_model', JSON.stringify(model)); localStorage.setItem('ta_fname', fileName); } catch (e) {}
+    if (!opts.silentToast) toast((opts.fromCloud ? '☁ Zsynchronizowano: ' : 'Wczytano: ') + fileName + ' · ' + model.training.weekCount + ' tygodni', '');
     State.selectedExercise = 0;
     State.entryWeek = model.training.weekCount + 1;
     render();
+    if (!opts.fromCloud) cloudPush();
   } catch (e) {
     console.error(e);
     toast('Błąd wczytywania pliku: ' + e.message, 'err');
@@ -147,37 +155,55 @@ async function tryRestore() {
 // =====================================================================
 //  ZAPIS DO PLIKU
 // =====================================================================
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 async function saveFile() {
   if (!State.wb) { toast('Brak wczytanego pliku do zapisu. Otwórz raport przyciskiem 📂.', 'err'); return; }
   try {
-    if (State.fileHandle && State.fileHandle.createWritable) {
-      const perm = await State.fileHandle.requestPermission({ mode: 'readwrite' });
-      if (perm === 'granted') {
-        const blob = await XLSXEngine.toBlob(State.wb, 'blob');
-        const w = await State.fileHandle.createWritable();
-        await w.write(blob); await w.close();
-        // odśwież snapshot
-        State.model = TrainingModel.build(State.wb);
-        try { localStorage.setItem('ta_model', JSON.stringify(State.model)); } catch (e) {}
-        toast('💾 Zapisano w pliku: ' + State.fileName, '');
-        return;
-      }
-    }
-    // fallback: pobierz nowy plik
     const u8 = await XLSXEngine.toBlob(State.wb, 'uint8array');
-    const blob = new Blob([u8], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = (State.fileName || 'trening').replace(/\.xlsx$/i, '') + ' (edytowany).xlsx';
-    a.click();
-    URL.revokeObjectURL(a.href);
+    State.wbBytes = u8;
     State.model = TrainingModel.build(State.wb);
     try { localStorage.setItem('ta_model', JSON.stringify(State.model)); } catch (e) {}
-    toast('⬇ Pobrano zapisany plik (wyślij go trenerowi).', 'info');
+    const blob = new Blob([u8], { type: XLSX_MIME });
+
+    let savedInPlace = false;
+    if (State.fileHandle && State.fileHandle.createWritable) {
+      try {
+        const perm = await State.fileHandle.requestPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          const w = await State.fileHandle.createWritable();
+          await w.write(blob); await w.close();
+          savedInPlace = true;
+          toast('💾 Zapisano w pliku: ' + State.fileName, '');
+        }
+      } catch (e) { /* spadek do pobrania */ }
+    }
+    if (!savedInPlace) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = (State.fileName || 'trening').replace(/\.xlsx$/i, '') + ' (edytowany).xlsx';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('⬇ Pobrano zapisany plik (wyślij go trenerowi).', 'info');
+    }
+    cloudPush();
   } catch (e) {
     console.error(e);
     toast('Błąd zapisu: ' + e.message, 'err');
   }
+}
+
+// wyślij aktualny plik do chmury (jeśli zalogowany)
+async function cloudPush() {
+  if (!(window.Cloud && Cloud.isEnabled() && Cloud.getUser() && State.wbBytes)) return;
+  setSyncBadge('sync');
+  try {
+    await Cloud.pushWorkbook(State.wbBytes, {
+      fileName: State.fileName,
+      weekCount: State.model ? State.model.training.weekCount : null
+    });
+    setSyncBadge('ok');
+  } catch (e) { console.error(e); setSyncBadge('err'); }
 }
 
 // eksport kopii pliku (ta sama forma + nowe dane) — do wysłania trenerowi
@@ -185,13 +211,15 @@ async function exportFile() {
   if (!State.wb) { toast('Najpierw otwórz raport (📂), aby go wyeksportować.', 'err'); return; }
   try {
     const u8 = await XLSXEngine.toBlob(State.wb, 'uint8array');
-    const blob = new Blob([u8], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    State.wbBytes = u8;
+    const blob = new Blob([u8], { type: XLSX_MIME });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = nextWeekFileName(State.fileName);
     a.click();
     URL.revokeObjectURL(a.href);
     toast('⬇ Wyeksportowano plik dla trenera.', 'info');
+    cloudPush();
   } catch (e) { console.error(e); toast('Błąd eksportu: ' + e.message, 'err'); }
 }
 // zaproponuj nazwę pliku z numerem aktualnego tygodnia
@@ -959,6 +987,115 @@ function renderRPE(root) {
 }
 
 // =====================================================================
+//  CHMURA — UI konta i synchronizacja
+// =====================================================================
+function cloudInit() {
+  if (!(window.Cloud && Cloud.init())) return; // brak konfiguracji → tryb lokalny
+  injectAccountUI();
+  Cloud.onAuth(async (user) => {
+    updateAccountUI(user);
+    if (user) {
+      try {
+        const res = await Cloud.pullWorkbook();
+        if (res) {
+          await loadBytes(res.bytes, res.meta.file_name || 'trening.xlsx', false, { fromCloud: true });
+        } else if (State.wb && State.wbBytes) {
+          await cloudPush(); // pierwszy raz na koncie — wyślij lokalny plik
+        }
+      } catch (e) { console.error(e); }
+    }
+  });
+  Cloud.onRemoteChange(async () => {
+    try {
+      const res = await Cloud.pullWorkbook();
+      if (res) await loadBytes(res.bytes, res.meta.file_name || 'trening.xlsx', false, { fromCloud: true });
+    } catch (e) { console.error(e); }
+  });
+}
+
+function injectAccountUI() {
+  // przycisk konta w pasku
+  const btn = el('button', { class: 'btn ghost', id: 'btnAccount', title: 'Konto i synchronizacja' },
+    '<span class="ico">☁</span> <span id="accLabel">Zaloguj</span> <span class="sync-dot" id="syncDot"></span>');
+  $('.topbar-actions').insertBefore(btn, $('#btnOpen'));
+  btn.addEventListener('click', openAuthModal);
+
+  // modal
+  const modal = el('div', { class: 'modal-bg hidden', id: 'authModal' });
+  modal.innerHTML = `<div class="modal">
+    <div class="modal-head"><h3>Konto i synchronizacja</h3><span class="modal-x" id="authClose">×</span></div>
+    <div id="authBody"></div>
+  </div>`;
+  document.body.appendChild(modal);
+  $('#authClose').addEventListener('click', closeAuthModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeAuthModal(); });
+  renderAuthBody();
+}
+
+function setSyncBadge(state) {
+  const d = $('#syncDot'); if (!d) return;
+  d.className = 'sync-dot ' + (state || '');
+  d.title = state === 'ok' ? 'Zsynchronizowano' : state === 'sync' ? 'Synchronizuję…' : state === 'err' ? 'Błąd synchronizacji' : '';
+}
+function updateAccountUI(user) {
+  const lab = $('#accLabel');
+  if (lab) lab.textContent = user ? (user.email ? user.email.split('@')[0] : 'Konto') : 'Zaloguj';
+  if (!user) setSyncBadge('');
+  renderAuthBody();
+}
+function openAuthModal() { renderAuthBody(); $('#authModal').classList.remove('hidden'); }
+function closeAuthModal() { $('#authModal').classList.add('hidden'); }
+
+function renderAuthBody() {
+  const body = $('#authBody'); if (!body) return;
+  const user = Cloud.getUser();
+  if (user) {
+    body.innerHTML = `
+      <p style="color:var(--txt-dim);font-size:13px;margin-bottom:14px">
+        Zalogowano jako <b style="color:var(--txt)">${esc(user.email || '')}</b>.<br>
+        Twoje dane synchronizują się na żywo między urządzeniami (komputer ↔ telefon).
+      </p>
+      <div class="row" style="gap:10px">
+        <button class="btn" id="btnSignOut">Wyloguj</button>
+        <span class="spacer"></span>
+      </div>`;
+    $('#btnSignOut').addEventListener('click', async () => {
+      try { await Cloud.signOut(); toast('Wylogowano.', 'info'); closeAuthModal(); }
+      catch (e) { toast('Błąd: ' + e.message, 'err'); }
+    });
+  } else {
+    body.innerHTML = `
+      <p style="color:var(--txt-dim);font-size:13px;margin-bottom:14px">
+        Załóż konto (lub zaloguj się), aby Twoje treningi synchronizowały się
+        na żywo między telefonem a komputerem. Dane widzisz tylko Ty.
+      </p>
+      <label class="fld" style="margin-bottom:10px">E-mail
+        <input type="email" id="authEmail" placeholder="ty@email.pl" autocomplete="username"></label>
+      <label class="fld" style="margin-bottom:14px">Hasło
+        <input type="password" id="authPass" placeholder="min. 6 znaków" autocomplete="current-password"></label>
+      <div id="authErr" style="color:var(--red);font-size:12px;margin-bottom:10px;display:none"></div>
+      <div class="row" style="gap:10px">
+        <button class="btn primary" id="btnSignIn">Zaloguj</button>
+        <button class="btn" id="btnSignUp">Załóż konto</button>
+      </div>`;
+    const err = (m) => { const e = $('#authErr'); e.style.display = 'block'; e.textContent = m; };
+    const creds = () => ({ email: $('#authEmail').value.trim(), password: $('#authPass').value });
+    $('#btnSignIn').addEventListener('click', async () => {
+      const c = creds(); if (!c.email || !c.password) return err('Podaj e-mail i hasło.');
+      try { await Cloud.signIn(c.email, c.password); toast('Zalogowano ☁', ''); closeAuthModal(); }
+      catch (e) { err(e.message || 'Błąd logowania.'); }
+    });
+    $('#btnSignUp').addEventListener('click', async () => {
+      const c = creds(); if (!c.email || c.password.length < 6) return err('E-mail i hasło (min. 6 znaków).');
+      try {
+        await Cloud.signUp(c.email, c.password);
+        toast('Konto utworzone — sprawdź mail lub zaloguj się.', '');
+      } catch (e) { err(e.message || 'Błąd rejestracji.'); }
+    });
+  }
+}
+
+// =====================================================================
 //  INIT
 // =====================================================================
 function init() {
@@ -974,6 +1111,7 @@ function init() {
   window.addEventListener('drop', e => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f && /\.xlsx$/i.test(f.name)) loadFile(f, false); });
 
   render();
+  cloudInit();          // chmura (jeśli skonfigurowana) — przed restore, by przejąć logowanie
   tryRestore();
 }
 document.addEventListener('DOMContentLoaded', init);

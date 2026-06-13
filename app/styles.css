@@ -277,6 +277,29 @@ input.tint-red    { border-color: #FF0000 !important; background: rgba(255,0,0,.
 @keyframes slideIn { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 .hidden { display: none !important; }
+
+/* status synchronizacji */
+.sync-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-left: 2px; background: transparent; }
+.sync-dot.ok { background: var(--acc); box-shadow: 0 0 6px var(--acc); }
+.sync-dot.sync { background: var(--blue); animation: pulse 1s infinite; }
+.sync-dot.err { background: var(--red); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+/* modal */
+.modal-bg {
+  position: fixed; inset: 0; background: rgba(5,7,10,.7); backdrop-filter: blur(4px);
+  display: grid; place-items: center; z-index: 1000; padding: 20px;
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--line-2); border-radius: 18px;
+  width: 100%; max-width: 420px; padding: 22px 24px; box-shadow: var(--shadow);
+  animation: slideIn .2s ease;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.modal-head h3 { font-size: 17px; font-weight: 800; }
+.modal-x { cursor: pointer; font-size: 24px; color: var(--txt-faint); line-height: 1; padding: 0 4px; }
+.modal-x:hover { color: var(--txt); }
+.modal .fld input { width: 100%; }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
 .legend-row { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--txt-dim); }

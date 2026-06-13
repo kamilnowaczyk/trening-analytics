@@ -1,16 +1,19 @@
 /* Service Worker — Trening Analytics
    Cache „app shell" → aplikacja działa offline (np. słabe wifi na siłowni).
    Pliki danych użytkownika NIE są cache'owane (są wczytywane lokalnie). */
-const CACHE = 'trening-analytics-v1';
+const CACHE = 'trening-analytics-v2';
 const ASSETS = [
   './',
   './index.html',
   './app/styles.css',
   './app/app.js',
+  './app/config.js',
+  './app/cloud.js',
   './lib/jszip.min.js',
   './lib/chart.umd.min.js',
   './lib/xlsx-engine.js',
   './lib/training-model.js',
+  './lib/supabase.min.js',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png'
